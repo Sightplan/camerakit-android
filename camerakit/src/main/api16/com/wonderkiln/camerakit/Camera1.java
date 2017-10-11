@@ -5,6 +5,7 @@ import android.graphics.YuvImage;
 import android.hardware.Camera;
 import android.media.CamcorderProfile;
 import android.media.MediaRecorder;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.support.annotation.NonNull;
@@ -77,6 +78,13 @@ public class Camera1 extends CameraImpl {
     private Handler mainHandler = new Handler(Looper.getMainLooper());
     private Handler mHandler = new Handler();
 
+    /**
+     * A separate *static* thread object is used such that the start / stop methods can only occur
+     * on a single instance of the Camera1 class at a time. The mCameraLock is fine for same-instance
+     * calls.
+     */
+    private static final Object THREADED_CAMERA_LOCK = new Object();
+
     private final Object mCameraLock = new Object();
 
     @Nullable
@@ -107,30 +115,88 @@ public class Camera1 extends CameraImpl {
 
     // CameraImpl:
 
+    // --- SightPlan Customization ---
+    //region Threading camera start/stop()
+
+    /**
+     * Tracks when start() is called on this camera instance, which is reset on stop(). Since we use
+     * a Surface of some kind, setting it up and posting to it can happen on any thread.
+     */
+    private boolean cameraStarted = false;
+
+    //endregion
+
     @Override
     void start() {
-        setFacing(mFacing);
-        openCamera();
-        if (mPreview.isReady()) {
-            setDisplayAndDeviceOrientation();
-            setupPreview();
-            mCamera.startPreview();
-            mShowingPreview = true;
+        if(cameraStarted) {
+            return;
         }
+
+        cameraStarted = true;
+
+
+        Thread startThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                synchronized (THREADED_CAMERA_LOCK) {
+                    setFacing(mFacing);
+
+                    try {
+                        openCamera();
+                    } catch (Exception e) {
+                        Log.e(TAG, "Failed to open camera", e);
+                        return;
+                    }
+
+
+                    if (mPreview.isReady()) {
+                        setDisplayAndDeviceOrientation();
+                        setupPreview();
+
+                        try {
+                            mCamera.startPreview();
+                        } catch (Exception e) {
+                            Log.e(TAG, "Failed to start camera preview", e);
+                            return;
+                        }
+
+                        mShowingPreview = true;
+                    }
+                }
+            }
+        });
+        startThread.setPriority(Thread.MAX_PRIORITY);
+        startThread.start();
     }
 
     @Override
     void stop() {
-        mHandler.removeCallbacksAndMessages(null);
-        if (mCamera != null) {
-            try {
-                mCamera.stopPreview();
-            } catch (Exception e) {
-                notifyErrorListener(e);
-            }
+        if(!cameraStarted) {
+            return;
         }
-        mShowingPreview = false;
-        releaseCamera();
+
+        cameraStarted = false;
+
+        mHandler.removeCallbacksAndMessages(null);
+
+        Thread stopThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                synchronized (THREADED_CAMERA_LOCK) {
+                    if (mCamera != null) {
+                        try {
+                            mCamera.stopPreview();
+                        } catch (Exception e) {
+                            notifyErrorListener(e);
+                        }
+                    }
+                    mShowingPreview = false;
+                    releaseCamera();
+                }
+            }
+        });
+        stopThread.setPriority(Thread.MAX_PRIORITY);
+        stopThread.start();
     }
 
     void setDisplayAndDeviceOrientation() {
@@ -204,7 +270,7 @@ public class Camera1 extends CameraImpl {
                     if (mCameraParameters != null) {
                         detachFocusTapListener();
                         final List<String> modes = mCameraParameters.getSupportedFocusModes();
-                        if (modes.contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE)) {
+                        if (cameraSupportsTrueContinuousFocus(modes)) {
                             mCameraParameters.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE);
                         } else {
                             setFocus(FOCUS_OFF);
@@ -216,7 +282,7 @@ public class Camera1 extends CameraImpl {
                     if (mCameraParameters != null) {
                         attachFocusTapListener();
                         final List<String> modes = mCameraParameters.getSupportedFocusModes();
-                        if (modes.contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE)) {
+                        if (cameraSupportsTrueContinuousFocus(modes)) {
                             mCameraParameters.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE);
                         }
                     }
@@ -256,6 +322,8 @@ public class Camera1 extends CameraImpl {
 
     @Override
     void captureImage() {
+        preCaptureCalls();
+
         switch (mMethod) {
             case METHOD_STANDARD:
                 synchronized (mCameraLock) {
@@ -266,8 +334,10 @@ public class Camera1 extends CameraImpl {
                         capturingImage = true;
 
                         // Set the captureRotation right before taking a picture so it's accurate
-                        int captureRotation = calculateCaptureRotation();
-                        mCameraParameters.setRotation(captureRotation);
+
+//                        int captureRotation = calculateCaptureRotation();
+//                        mCameraParameters.setRotation(captureRotation);
+
                         mCamera.setParameters(mCameraParameters);
 
                         mCamera.takePicture(null, null, null,
@@ -646,6 +716,12 @@ public class Camera1 extends CameraImpl {
             notifyErrorListener("setFlash", e.getLocalizedMessage());
         }
 
+        /**
+         * See the below page about camera issues with focus / flash.
+         * http://stackoverflow.com/questions/26318300/samsung-galaxy-s5-camera-flash-problems
+         */
+        setHiddenParameter(mCameraParameters, "zsl-values", "zsl", "on");
+
         mCamera.setParameters(mCameraParameters);
 
         if (haveToReadjust && currentTry < 100) {
@@ -915,5 +991,46 @@ public class Camera1 extends CameraImpl {
             return normalized;
         }
     }
+
+    //region --- ADDITIONS TO CAMERA PARAMS ---
+
+    // See the below page about camera issues with focus / flash.
+    // http://stackoverflow.com/questions/26318300/samsung-galaxy-s5-camera-flash-problems
+    private static void setHiddenParameter(Camera.Parameters params, String values_key, String key, String value) {
+        if (params.get(key) == null) {
+            return;
+        }
+
+        String possible_values_str = params.get(values_key);
+        if (possible_values_str == null) {
+            return;
+        }
+
+        String[] possible_values = possible_values_str.split(",");
+        for (String possible : possible_values) {
+            if (possible.equals(value)) {
+                params.set(key, value);
+                return;
+            }
+        }
+    }
+
+    private static boolean cameraSupportsTrueContinuousFocus(List<String> supportedModes) {
+        boolean isWhitelisted = !Build.MODEL.equals("Nexus 4");
+        return isWhitelisted && supportedModes != null && supportedModes.contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE);
+    }
+
+    private void preCaptureCalls() {
+        if(mCameraListener instanceof CameraView.CameraListenerMiddleWare) {
+            CameraListener wrappedListener = ((CameraView.CameraListenerMiddleWare) mCameraListener).getCameraListener();
+            if(wrappedListener instanceof CameraListener.Camera1InfoListener) {
+                ((CameraListener.Camera1InfoListener) wrappedListener).onCaptureCameraInfo(
+                        mCameraInfo, mCamera, mCameraParameters, mCameraId
+                );
+            }
+        }
+    }
+    //endregion
+
 
 }

@@ -178,6 +178,12 @@ public class CameraView extends FrameLayout implements LifecycleObserver {
             focusMarkerLayout.setOnTouchListener(new OnTouchListener() {
                 @Override
                 public boolean onTouch(View v, MotionEvent motionEvent) {
+
+                    // Block focus attempts while photo is being captured
+                    if(isCapturing) {
+                        return true;
+                    }
+
                     int action = motionEvent.getAction();
                     if (motionEvent.getAction() == MotionEvent.ACTION_UP && mFocus == CameraKit.Constants.FOCUS_TAP_WITH_MARKER) {
                         focusMarkerLayout.focus(motionEvent.getX(), motionEvent.getY());
@@ -197,7 +203,8 @@ public class CameraView extends FrameLayout implements LifecycleObserver {
         if (!isInEditMode()) {
             mDisplayOrientationDetector.enable(
                     ViewCompat.isAttachedToWindow(this)
-                            ? DisplayManagerCompat.getInstance(getContext())
+                            ? DisplayManagerCompat.getInstance(
+                                getContext().getApplicationContext())
                             .getDisplay(Display.DEFAULT_DISPLAY)
                             : null
             );
@@ -484,7 +491,7 @@ public class CameraView extends FrameLayout implements LifecycleObserver {
         mCameraImpl.setErrorListener(listener);
     }
 
-    private class CameraListenerMiddleWare extends CameraListener {
+    public class CameraListenerMiddleWare extends CameraListener {
 
         private CameraListener mCameraListener;
 
@@ -555,4 +562,15 @@ public class CameraView extends FrameLayout implements LifecycleObserver {
 
     }
 
+    // --------------------------
+    // SightPlan Customizations
+    // --------------------------
+    //region ++ region ++
+
+    private boolean isCapturing;
+
+    public void setCapturing(boolean capturing) {
+        isCapturing = capturing;
+    }
+    //endregion
 }
