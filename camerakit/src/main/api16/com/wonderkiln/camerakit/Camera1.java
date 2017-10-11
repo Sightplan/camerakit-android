@@ -337,7 +337,6 @@ public class Camera1 extends CameraImpl {
 
 //                        int captureRotation = calculateCaptureRotation();
 //                        mCameraParameters.setRotation(captureRotation);
-
                         mCamera.setParameters(mCameraParameters);
 
                         mCamera.takePicture(null, null, null,
@@ -353,7 +352,7 @@ public class Camera1 extends CameraImpl {
                                             if (isCameraOpened()) {
                                                 try {
                                                     stop();
-                                                    start();
+//                                                    start();
                                                 } catch (Exception e) {
                                                     notifyErrorListener(e);
                                                 }
