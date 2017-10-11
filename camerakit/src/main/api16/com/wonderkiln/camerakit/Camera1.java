@@ -705,8 +705,8 @@ public class Camera1 extends CameraImpl {
             haveToReadjust = true;
         }
 
-        int rotation = calculateCaptureRotation();
-        mCameraParameters.setRotation(rotation);
+//        int rotation = calculateCaptureRotation();
+//        mCameraParameters.setRotation(rotation);
 
         setFocus(mFocus);
 
