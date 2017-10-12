@@ -499,12 +499,65 @@ public class Camera1 extends CameraImpl {
             }
         }
 
-        boolean invertPreviewSizes = (mCameraInfo.orientation + mDeviceOrientation) % 180 == 90;
+        boolean invertPreviewSizes = currentTrueOrientationIsLandscape();
         if (mPreviewSize != null && invertPreviewSizes) {
             return new Size(mPreviewSize.getHeight(), mPreviewSize.getWidth());
         }
 
         return mPreviewSize;
+    }
+
+    private boolean currentTrueOrientationIsLandscape() {
+        /*
+        Front facing images are always rotated to portrait, regardless of natural hand-held position
+         */
+        if(mFacing == CameraKit.Constants.FACING_FRONT) {
+            final int degreeRotationDelta = mCameraInfo.orientation - mDeviceOrientation + 360;
+            final int moduloRotation = degreeRotationDelta % 360;
+            switch (moduloRotation) {
+                case 90:
+                case 270:
+                    return true;
+                case 0:
+                case 180:
+                default:
+                    return false;
+            }
+        }
+        /*
+        The natural orientation of the device determines which path we go down. If held in a portrait
+        mode, we rotate the image normally - it should always end up right-side-up, with the top parallel
+        to the top of the device's natural orientation. If it is landscape, we change the calculation.
+         */
+        else {
+            final int calculatedRotationRequirementDegrees;
+
+            boolean deviceOrientationPortrait = mDeviceOrientation == 0 || mDeviceOrientation == 180;
+            if(deviceOrientationPortrait) {
+                // rotate normally. compute the number of degrees the image _must be rotated clockwise_
+                // to align with the natural portrait orientation
+                final int degreeRotationSum = mCameraInfo.orientation + mDeviceOrientation;
+                calculatedRotationRequirementDegrees = degreeRotationSum % 360;
+            } else {
+                // instead of using the device's natural orientation, we reverse the camera's orientation
+                // from "the number of degrees to rotate clockwise to right it" to "the number of degrees
+                // it IS rotated clockwise".
+                final int cameraModuleDegreesRotatedClockwise = (360 - mCameraInfo.orientation) % 360;
+                final int degreeRotationSum = cameraModuleDegreesRotatedClockwise + mDeviceOrientation;
+                final int moduloRotation = degreeRotationSum % 360;
+                calculatedRotationRequirementDegrees = (mDeviceOrientation - moduloRotation + 360) % 360;
+            }
+
+            switch (calculatedRotationRequirementDegrees) {
+                case 90:
+                case 270:
+                    return true;
+                case 0:
+                case 180:
+                default:
+                    return false;
+            }
+        }
     }
 
     @Override
@@ -582,7 +635,25 @@ public class Camera1 extends CameraImpl {
             int result = (mCameraInfo.orientation + mDisplayOrientation) % 360;
             return (360 - result) % 360;
         } else {
-            return (mCameraInfo.orientation - mDisplayOrientation + 360) % 360;
+            final int calculatedRotationRequirementDegrees;
+
+            boolean deviceOrientationPortrait = mDisplayOrientation == 0 || mDisplayOrientation == 180;
+            if(deviceOrientationPortrait) {
+                // rotate normally. compute the number of degrees the image _must be rotated clockwise_
+                // to align with the natural portrait orientation
+                final int degreeRotationSum = mCameraInfo.orientation + mDisplayOrientation;
+                calculatedRotationRequirementDegrees = degreeRotationSum % 360;
+            } else {
+                // instead of using the device's natural orientation, we reverse the camera's orientation
+                // from "the number of degrees to rotate clockwise to right it" to "the number of degrees
+                // it IS rotated clockwise".
+                final int cameraModuleDegreesRotatedClockwise = (360 - mCameraInfo.orientation) % 360;
+                final int degreeRotationSum = cameraModuleDegreesRotatedClockwise + mDisplayOrientation;
+                final int moduloRotation = degreeRotationSum % 360;
+                calculatedRotationRequirementDegrees = (mDisplayOrientation - moduloRotation + 360) % 360;
+            }
+
+            return calculatedRotationRequirementDegrees;
         }
     }
 
@@ -658,7 +729,7 @@ public class Camera1 extends CameraImpl {
     }
 
     private void adjustCameraParameters(int currentTry) {
-        boolean invertPreviewSizes = (mCameraInfo.orientation + mDeviceOrientation) % 180 == 90;
+        boolean invertPreviewSizes = currentTrueOrientationIsLandscape();
         boolean haveToReadjust = false;
         Camera.Parameters resolutionLess = mCamera.getParameters();
 

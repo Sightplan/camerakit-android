@@ -185,7 +185,7 @@ public class CameraView extends FrameLayout implements LifecycleObserver {
                     }
 
                     int action = motionEvent.getAction();
-                    if (motionEvent.getAction() == MotionEvent.ACTION_UP && mFocus == CameraKit.Constants.FOCUS_TAP_WITH_MARKER) {
+                    if (action == MotionEvent.ACTION_UP && mFocus == CameraKit.Constants.FOCUS_TAP_WITH_MARKER) {
                         focusMarkerLayout.focus(motionEvent.getX(), motionEvent.getY());
                     }
 
@@ -512,14 +512,14 @@ public class CameraView extends FrameLayout implements LifecycleObserver {
         public void onPictureTaken(byte[] jpeg) {
             super.onPictureTaken(jpeg);
 
-            // Handle cameras that don't give us the correctly rotated/mirrored image, but instead just set the corresponding EXIF data.
-            // Exif data is lost when we do a BitmapFactory.decodeByteArray, so need to correct image here.
-            if (ExifUtil.getExifOrientation(jpeg) != ExifInterface.ORIENTATION_NORMAL || mFacing == FACING_FRONT) {
-                Bitmap bitmap = ExifUtil.decodeBitmapWithRotation(jpeg, mFacing == FACING_FRONT);
-                ByteArrayOutputStream stream = new ByteArrayOutputStream();
-                bitmap.compress(Bitmap.CompressFormat.JPEG, mJpegQuality, stream);
-                jpeg = stream.toByteArray();
-            }
+//            // Handle cameras that don't give us the correctly rotated/mirrored image, but instead just set the corresponding EXIF data.
+//            // Exif data is lost when we do a BitmapFactory.decodeByteArray, so need to correct image here.
+//            if (ExifUtil.getExifOrientation(jpeg) != ExifInterface.ORIENTATION_NORMAL || mFacing == FACING_FRONT) {
+//                Bitmap bitmap = ExifUtil.decodeBitmapWithRotation(jpeg, mFacing == FACING_FRONT);
+//                ByteArrayOutputStream stream = new ByteArrayOutputStream();
+//                bitmap.compress(Bitmap.CompressFormat.JPEG, mJpegQuality, stream);
+//                jpeg = stream.toByteArray();
+//            }
 
             if (mCropOutput) {
                 int width = mMethod == METHOD_STANDARD ? mCameraImpl.getCaptureResolution().getWidth() : mCameraImpl.getPreviewResolution().getWidth();
