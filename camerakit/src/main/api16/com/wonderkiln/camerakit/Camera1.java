@@ -208,7 +208,7 @@ public class Camera1 extends CameraImpl {
         this.mDisplayOrientation = displayOrientation;
         this.mDeviceOrientation = deviceOrientation;
 
-        if (isCameraOpened()) {
+        if (isCameraOpened() && cameraStarted) {
             mCamera.setDisplayOrientation(calculatePreviewRotation());
         }
     }
@@ -1016,21 +1016,26 @@ public class Camera1 extends CameraImpl {
             @Override
             public void run() {
                 synchronized (mCameraLock) {
-                    if (mCamera != null) {
-                        mCamera.cancelAutoFocus();
-                        Camera.Parameters parameters = getCameraParameters();
-                        if (parameters == null) return;
+                    try {
+                        if (mCamera != null) {
+                            mCamera.cancelAutoFocus();
+                            Camera.Parameters parameters = getCameraParameters();
+                            if (parameters == null) return;
 
-                        if (parameters.getFocusMode() != Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE) {
-                            parameters.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE);
-                            parameters.setFocusAreas(null);
-                            parameters.setMeteringAreas(null);
-                            mCamera.setParameters(parameters);
-                        }
+                            String focusMode = parameters.getFocusMode();
+                            if (focusMode != null && !Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE.equals(focusMode)) {
+                                parameters.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_PICTURE);
+                                parameters.setFocusAreas(null);
+                                parameters.setMeteringAreas(null);
+                                mCamera.setParameters(parameters);
+                            }
 
-                        if (mAutofocusCallback != null) {
-                            mAutofocusCallback.onAutoFocus(success, mCamera);
+                            if (mAutofocusCallback != null) {
+                                mAutofocusCallback.onAutoFocus(success, mCamera);
+                            }
                         }
+                    } catch (Exception e) {
+                        Log.e(TAG, "failed to reset camera focus", e);
                     }
                 }
             }
